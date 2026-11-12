@@ -1,0 +1,1256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Phone-to-Mac &amp; Linux Bridge — Instant Cross-OS Sync</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- PeerJS for Real-Time WebRTC Device-to-Device Linking -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <!-- Google Fonts: Inter -->
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    body {
+      font-family: 'Inter', sans-serif;
+      background-color: #0f172a; /* Dark Slate 900 */
+      color: #f8fafc;
+    }
+    /* Custom subtle dark scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 9999px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+    @keyframes pulse-ring {
+      0% { transform: scale(0.95); opacity: 0.75; }
+      50% { transform: scale(1.2); opacity: 0.15; }
+      100% { transform: scale(0.95); opacity: 0.75; }
+    }
+    .animate-pulse-ring {
+      animation: pulse-ring 2.2s infinite ease-in-out;
+    }
+  </style>
+</head>
+<body class="antialiased min-h-screen flex flex-col selection:bg-blue-500 selection:text-white">
+
+  <!-- Toast Notification Container (Replaces alert) -->
+  <div id="toast-container" class="fixed top-4 right-4 z-50 flex flex-col gap-2 max-w-xs w-full pointer-events-none"></div>
+
+  <!-- Incoming Full-Screen Alert Banner Modal (Triggered by Remote Alert) -->
+  <div id="remote-alert-modal" class="hidden fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-slate-900 border-2 border-blue-500 rounded-2xl max-w-md w-full p-6 shadow-2xl text-center space-y-4">
+      <div class="w-14 h-14 mx-auto rounded-full bg-blue-500/20 text-blue-400 flex items-center justify-center">
+        <svg class="w-8 h-8 animate-bounce" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+        </svg>
+      </div>
+      <h3 class="text-xl font-bold text-white">Alert from Linked Device</h3>
+      <p id="remote-alert-text" class="text-sm text-slate-300 bg-slate-800/80 p-3.5 rounded-xl border border-slate-700">
+        Your phone is connected and ready!
+      </p>
+      <button onclick="dismissRemoteAlert()" class="w-full py-3 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-semibold text-sm transition-all shadow-lg shadow-blue-600/25">
+        Dismiss Alert
+      </button>
+    </div>
+  </div>
+
+  <!-- Top Header -->
+  <header class="bg-slate-900/90 backdrop-blur-md border-b border-slate-800 sticky top-0 z-40">
+    <div class="max-w-5xl mx-auto px-4 py-3.5 flex flex-wrap items-center justify-between gap-3">
+      <!-- Brand Identity -->
+      <div class="flex items-center gap-3">
+        <div class="bg-gradient-to-br from-blue-500 to-blue-700 p-2.5 rounded-xl shadow-lg shadow-blue-600/20">
+          <svg class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+        </div>
+        <div>
+          <h1 class="font-extrabold text-lg sm:text-xl tracking-tight text-white">Phone-to-Mac &amp; Linux Bridge</h1>
+          <p class="text-xs text-slate-400 flex items-center gap-1.5">
+            <span>Smartphone &harr;</span>
+            <span id="header-style-badge" class="text-blue-400 font-semibold">AirDrop-Style macOS Sync</span>
+          </p>
+        </div>
+      </div>
+
+      <!-- OS Toggle Switch (macOS vs Linux) -->
+      <div class="flex items-center bg-slate-950 p-1 rounded-xl border border-slate-800 shadow-inner">
+        <button id="btn-os-mac" onclick="setTargetOS('mac')" class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all bg-blue-600 text-white shadow-md shadow-blue-600/25">
+          <!-- Laptop / Apple-style Display SVG -->
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <rect x="3" y="4" width="18" height="12" rx="2" />
+            <path d="M2 20h20" stroke-linecap="round" />
+          </svg>
+          <span>macOS</span>
+        </button>
+        <button id="btn-os-linux" onclick="setTargetOS('linux')" class="flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all text-slate-400 hover:text-white">
+          <!-- Terminal / Tux Shell SVG -->
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span>Linux</span>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- Main Content -->
+  <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-6 space-y-6">
+
+    <!-- Section 1: Connection Status & 4-Digit Pairing Card -->
+    <section class="bg-slate-900 rounded-2xl border border-slate-800 shadow-xl overflow-hidden">
+      <div class="p-5 sm:p-6">
+        <!-- Status Bar -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-slate-800">
+          <div class="flex items-center gap-3.5">
+            <div class="relative flex items-center justify-center w-12 h-12 rounded-2xl bg-slate-800 border border-slate-700">
+              <span id="status-pulse" class="absolute inset-0 rounded-2xl bg-amber-400/40 animate-pulse-ring"></span>
+              <svg id="status-icon" class="w-6 h-6 relative z-10 text-amber-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div>
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400"></span>
+                  Phone Online
+                </span>
+                <span id="laptop-status-badge" class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                  <span id="laptop-status-dot" class="w-2 h-2 rounded-full bg-amber-400 animate-pulse"></span>
+                  <span id="laptop-status-text">Waiting for Mac...</span>
+                </span>
+              </div>
+              <p id="connection-subtitle" class="text-xs sm:text-sm text-slate-400 mt-1">
+                Turn on your <span class="os-target-name text-slate-200 font-medium">Mac</span>, open this page, and enter your 4-digit pairing code.
+              </p>
+            </div>
+          </div>
+
+          <!-- Demo Simulation Toggle -->
+          <button id="btn-demo-toggle" onclick="toggleDemoMode()" class="self-start sm:self-center px-4 py-2.5 rounded-xl text-xs sm:text-sm font-semibold bg-blue-600/20 hover:bg-blue-600/30 border border-blue-500/40 text-blue-300 transition-all flex items-center gap-2 active:scale-95">
+            <svg class="w-4 h-4 text-blue-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span id="demo-btn-label">Test Simulation Mode</span>
+          </button>
+        </div>
+
+        <!-- Two-Column Pairing Controls -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-5 pt-5">
+
+          <!-- Left: Generated 4-Digit Host Code (Phone) -->
+          <div class="bg-slate-800/60 rounded-2xl p-4 sm:p-5 border border-slate-700/80 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between mb-1">
+                <span class="text-xs font-bold uppercase tracking-wider text-blue-400">Step 1 • Smartphone Host</span>
+                <button onclick="regenerateCode()" class="text-xs text-slate-400 hover:text-blue-300 font-medium transition-colors">
+                  Refresh Code
+                </button>
+              </div>
+              <h2 class="text-base font-bold text-white">Your 4-Digit Pairing Code</h2>
+              <p class="text-xs text-slate-400 mt-1">
+                Enter this code on your <span class="os-target-name font-semibold text-slate-200">Mac</span> once it finishes booting up:
+              </p>
+            </div>
+
+            <div class="my-4 flex items-center justify-between bg-slate-950/90 px-4 py-3.5 rounded-xl border border-blue-500/30">
+              <div id="my-pairing-code" class="text-3xl sm:text-4xl font-extrabold tracking-[0.28em] text-blue-400 select-all">
+                ----
+              </div>
+              <button onclick="copyPairingCode()" class="px-4 py-2.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white text-xs font-semibold rounded-xl transition-all shadow-md shadow-blue-600/20">
+                Copy Code
+              </button>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span>WebRTC + BroadcastChannel:</span>
+              <span id="peer-network-state" class="text-blue-400 font-medium">Initializing...</span>
+            </div>
+          </div>
+
+          <!-- Right: Partner Code Input (Mac / Linux) -->
+          <div class="bg-slate-800/60 rounded-2xl p-4 sm:p-5 border border-slate-700/80 flex flex-col justify-between">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-sky-400">Step 2 • <span class="os-target-name">Mac</span> Link</span>
+              <h2 class="text-base font-bold text-white mt-1">Enter Pairing Code</h2>
+              <p class="text-xs text-slate-400 mt-1">
+                On your <span class="os-target-name font-semibold text-slate-200">Mac</span>, type the 4-digit code shown on your phone screen:
+              </p>
+            </div>
+
+            <div class="my-4 flex items-center gap-2.5">
+              <input
+                id="input-partner-code"
+                type="text"
+                maxlength="4"
+                inputmode="numeric"
+                placeholder="0000"
+                class="w-full text-center text-2xl sm:text-3xl font-extrabold tracking-[0.25em] py-3 px-3 rounded-xl border border-slate-600 bg-slate-950 text-white placeholder-slate-600 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+              />
+              <button
+                id="btn-connect-peer"
+                onclick="connectToPartner()"
+                class="px-5 py-3.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-bold text-sm rounded-xl transition-all shadow-lg shadow-blue-600/20 whitespace-nowrap">
+                Connect
+              </button>
+            </div>
+
+            <div class="flex items-center justify-between text-xs text-slate-400">
+              <span id="protocol-tag">Protocol: AirDrop-Style Direct P2P</span>
+              <button id="btn-disconnect" onclick="disconnectSession()" class="hidden text-rose-400 hover:text-rose-300 font-semibold">
+                Disconnect
+              </button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Tools Grid -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+
+      <!-- Left 7 Columns: Live Clipboard Sync + File & Image Drop Zone -->
+      <div class="lg:col-span-7 space-y-6">
+
+        <!-- Section 2: Live Clipboard & Text Sync -->
+        <section class="bg-slate-900 rounded-2xl border border-slate-800 p-5 sm:p-6 shadow-lg">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 bg-blue-500/15 text-blue-400 rounded-xl border border-blue-500/25">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8 5H6a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2v-1M8 5a2 2 0 002 2h2a2 2 0 002-2M8 5a2 2 0 012-2h2a2 2 0 012 2m0 0h2a2 2 0 012 2v3m2 4H10m0 0l3-3m-3 3l3 3" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-white text-base">Live Clipboard &amp; Text Sync</h3>
+                <p class="text-xs text-slate-400">Paste on <span class="os-target-name">Mac</span> with <kbd class="os-paste-shortcut px-1.5 py-0.5 bg-slate-800 border border-slate-700 rounded text-blue-300 font-mono text-[11px]">Cmd+V</kbd></p>
+              </div>
+            </div>
+          </div>
+
+          <div class="space-y-3.5">
+            <textarea
+              id="clipboard-input"
+              rows="3"
+              placeholder="Paste a website link, SSH key, Wi-Fi password, or note here..."
+              class="w-full rounded-xl border border-slate-700 p-3.5 text-sm text-white placeholder-slate-500 bg-slate-950 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            ></textarea>
+
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <button onclick="pasteFromDeviceClipboard()" class="px-4 py-3 rounded-xl text-xs sm:text-sm font-semibold bg-slate-800 hover:bg-slate-700 active:scale-95 text-slate-200 border border-slate-700 transition-all">
+                Paste Clipboard
+              </button>
+              <button onclick="sendClipboardText()" class="flex-1 sm:flex-initial px-6 py-3 rounded-xl text-sm font-bold bg-blue-600 hover:bg-blue-500 active:scale-95 text-white shadow-lg shadow-blue-600/25 transition-all flex items-center justify-center gap-2">
+                <span>Send to <span class="os-target-name">Mac</span></span>
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- Section 4: File & Image Drop Zone -->
+        <section class="bg-slate-900 rounded-2xl border border-slate-800 p-5 sm:p-6 shadow-lg">
+          <div class="flex items-center gap-3 mb-4">
+            <div class="p-2.5 bg-sky-500/15 text-sky-400 rounded-xl border border-sky-500/25">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h3 class="font-bold text-white text-base">File &amp; Image Drop Zone</h3>
+              <p class="text-xs text-slate-400">Transfer photos, screenshots, or archives directly to <span class="os-target-name">Mac</span> (up to 8 MB)</p>
+            </div>
+          </div>
+
+          <label id="drop-zone" class="flex flex-col items-center justify-center w-full h-36 border-2 border-dashed border-slate-700 hover:border-blue-500 rounded-2xl bg-slate-950/70 hover:bg-blue-950/20 cursor-pointer transition-all p-4 text-center group">
+            <div class="p-3 rounded-full bg-slate-800 group-hover:bg-blue-600/20 text-blue-400 mb-2 transition-colors">
+              <svg class="w-6 h-6" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+              </svg>
+            </div>
+            <span class="text-sm font-semibold text-slate-200 group-hover:text-blue-300">Tap to pick a photo or file, or drag &amp; drop</span>
+            <span class="text-xs text-slate-500 mt-1">Instant peer-to-peer transfer with thumbnail preview &amp; one-click download</span>
+            <input id="file-input" type="file" class="hidden" onchange="handleFileSelect(event)" />
+          </label>
+        </section>
+
+      </div>
+
+      <!-- Right 5 Columns: Quick Remote Actions & Terminal Snippets + Live Sync Stream -->
+      <div class="lg:col-span-5 space-y-6">
+
+        <!-- Section 3: Quick Remote Actions & Terminal Snippets -->
+        <section class="bg-slate-900 rounded-2xl border border-slate-800 p-5 sm:p-6 shadow-lg">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-3">
+              <div class="p-2.5 bg-indigo-500/15 text-indigo-400 rounded-xl border border-indigo-500/25">
+                <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                </svg>
+              </div>
+              <div>
+                <h3 class="font-bold text-white text-base">Quick Remote Actions</h3>
+                <p class="text-xs text-slate-400">Trigger alerts &amp; Terminal snippets on <span class="os-target-name">Mac</span></p>
+              </div>
+            </div>
+            <span id="latency-badge" class="hidden px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs font-mono font-bold">
+              -- ms
+            </span>
+          </div>
+
+          <div class="space-y-3">
+            <!-- Action 1: Ring Computer -->
+            <button onclick="triggerRingLaptop()" class="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-800/80 hover:bg-blue-600/20 border border-slate-700 hover:border-blue-500/50 active:scale-98 transition-all text-left group">
+              <div class="flex items-center gap-3">
+                <span class="text-xl">🔔</span>
+                <div>
+                  <div class="text-sm font-bold text-white group-hover:text-blue-300">Ring Computer</div>
+                  <div class="text-xs text-slate-400">Play pleasant Web Audio chime on <span class="os-target-name">Mac</span></div>
+                </div>
+              </div>
+              <span class="text-xs font-semibold text-blue-400">Ring &rarr;</span>
+            </button>
+
+            <!-- Action 2: Send Screen Alert -->
+            <button onclick="triggerQuickAlert()" class="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-800/80 hover:bg-sky-600/20 border border-slate-700 hover:border-sky-500/50 active:scale-98 transition-all text-left group">
+              <div class="flex items-center gap-3">
+                <span class="text-xl">💬</span>
+                <div>
+                  <div class="text-sm font-bold text-white group-hover:text-sky-300">Send Screen Alert</div>
+                  <div class="text-xs text-slate-400">Pop up full-screen banner on <span class="os-target-name">Mac</span></div>
+                </div>
+              </div>
+              <span class="text-xs font-semibold text-sky-400">Pop &rarr;</span>
+            </button>
+
+            <!-- Action 3: Ping Latency Test -->
+            <button onclick="triggerPingTest()" class="w-full flex items-center justify-between p-3.5 rounded-xl bg-slate-800/80 hover:bg-indigo-600/20 border border-slate-700 hover:border-indigo-500/50 active:scale-98 transition-all text-left group">
+              <div class="flex items-center gap-3">
+                <span class="text-xl">📡</span>
+                <div>
+                  <div class="text-sm font-bold text-white group-hover:text-indigo-300">Ping Latency Test</div>
+                  <div class="text-xs text-slate-400">Measure round-trip speed in ms</div>
+                </div>
+              </div>
+              <span class="text-xs font-semibold text-indigo-400">Test &rarr;</span>
+            </button>
+
+            <!-- Dynamic Terminal / Shell Quick Commands -->
+            <div class="pt-2 border-t border-slate-800">
+              <div class="flex items-center justify-between mb-2">
+                <span id="terminal-snippets-title" class="text-xs font-bold uppercase tracking-wider text-slate-400">macOS Terminal Snippets</span>
+                <span class="text-[11px] text-slate-500">Tap to beam to clipboard</span>
+              </div>
+              <div id="terminal-snippets-list" class="grid grid-cols-1 gap-2">
+                <!-- Populated dynamically by JS for macOS or Linux -->
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- Live Activity & Transfer Stream -->
+        <section class="bg-slate-900 rounded-2xl border border-slate-800 p-5 sm:p-6 shadow-lg flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="font-bold text-white text-base">Live Sync Feed</h3>
+            <button onclick="clearFeed()" class="text-xs text-slate-400 hover:text-slate-200 font-medium">
+              Clear Feed
+            </button>
+          </div>
+
+          <div id="sync-feed" class="space-y-3 max-h-80 overflow-y-auto pr-1">
+            <!-- Initial Status Item -->
+            <div class="p-3.5 rounded-xl bg-slate-800/70 border border-slate-700/80 text-xs text-slate-300">
+              <div class="flex items-center justify-between font-semibold text-blue-400 mb-1">
+                <span>Bridge Ready</span>
+                <span>Now</span>
+              </div>
+              <p class="leading-relaxed">
+                Your phone is online. Turn on your <strong class="os-target-name text-white">Mac</strong>, open this page, and type code <strong id="feed-code-hint" class="font-mono text-white bg-slate-950 px-1.5 py-0.5 rounded border border-slate-700">----</strong>—or tap <strong>Test Simulation Mode</strong> above to test immediately.
+              </p>
+            </div>
+          </div>
+        </section>
+
+      </div>
+    </div>
+  </main>
+
+  <!-- Footer -->
+  <footer class="max-w-5xl w-full mx-auto px-4 py-5 text-center text-xs text-slate-500">
+    Phone-to-Mac &amp; Linux Bridge • WebRTC PeerJS, BroadcastChannel &amp; Web Audio API
+  </footer>
+
+  <script>
+    // =========================================================================
+    // APPLICATION STATE & OS CONFIGURATIONS
+    // =========================================================================
+    const OS_PROFILES = {
+      mac: {
+        name: 'Mac',
+        fullName: 'macOS',
+        styleBadge: 'AirDrop-Style macOS Sync',
+        protocolTag: 'Protocol: AirDrop-Style Direct P2P',
+        pasteShortcut: 'Cmd+V',
+        snippetsTitle: 'macOS Terminal Snippets',
+        snippets: [
+          { label: 'Paste to Clipboard (pbpaste)', cmd: 'pbpaste' },
+          { label: 'Prevent Sleep (caffeinate)', cmd: 'caffeinate -d -t 3600' },
+          { label: 'Flush DNS Cache', cmd: 'sudo dscacheutil -flushcache; sudo killall -HUP mDNSResponder' }
+        ]
+      },
+      linux: {
+        name: 'Linux',
+        fullName: 'Linux',
+        styleBadge: 'KDE Connect-Style Linux Sync',
+        protocolTag: 'Protocol: KDE Connect-Style Direct P2P',
+        pasteShortcut: 'Ctrl+V',
+        snippetsTitle: 'Linux Shell Snippets',
+        snippets: [
+          { label: 'System Info (uname & uptime)', cmd: 'uname -a && uptime' },
+          { label: 'Local IP Addresses', cmd: 'ip -brief addr show' },
+          { label: 'Tail System Journal', cmd: 'journalctl -n 25 --no-pager' }
+        ]
+      }
+    };
+
+    const state = {
+      targetOS: 'mac',
+      myCode: '',
+      peer: null,
+      conn: null,
+      broadcast: null,
+      isConnected: false,
+      demoMode: false,
+      audioCtx: null,
+      lastPingSentAt: 0
+    };
+
+    const PEER_PREFIX = 'phone-mac-linux-bridge-2026-';
+
+    // =========================================================================
+    // INITIALIZATION
+    // =========================================================================
+    window.addEventListener('DOMContentLoaded', () => {
+      initPairingCode();
+      initBroadcastChannel();
+      initDragAndDrop();
+      renderTerminalSnippets();
+    });
+
+    function generateFourDigitCode() {
+      return Math.floor(1000 + Math.random() * 9000).toString();
+    }
+
+    function initPairingCode() {
+      state.myCode = generateFourDigitCode();
+      updateCodeDisplay();
+      setupPeerJS(state.myCode);
+    }
+
+    function regenerateCode() {
+      if (state.peer) {
+        state.peer.destroy();
+      }
+      state.isConnected = false;
+      updateConnectionUI();
+      initPairingCode();
+      showToast('Generated new 4-digit pairing code', 'info');
+    }
+
+    function updateCodeDisplay() {
+      document.getElementById('my-pairing-code').textContent = state.myCode;
+      document.getElementById('feed-code-hint').textContent = state.myCode;
+    }
+
+    // =========================================================================
+    // OS TOGGLE SWITCH (macOS vs Linux)
+    // =========================================================================
+    function setTargetOS(osKey) {
+      if (!OS_PROFILES[osKey]) return;
+      state.targetOS = osKey;
+      const profile = OS_PROFILES[osKey];
+
+      const macBtn = document.getElementById('btn-os-mac');
+      const linuxBtn = document.getElementById('btn-os-linux');
+
+      if (osKey === 'mac') {
+        macBtn.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all bg-blue-600 text-white shadow-md shadow-blue-600/25';
+        linuxBtn.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all text-slate-400 hover:text-white';
+      } else {
+        linuxBtn.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all bg-blue-600 text-white shadow-md shadow-blue-600/25';
+        macBtn.className = 'flex items-center gap-1.5 px-3.5 py-2 rounded-lg text-xs sm:text-sm font-bold transition-all text-slate-400 hover:text-white';
+      }
+
+      document.getElementById('header-style-badge').textContent = profile.styleBadge;
+      document.getElementById('protocol-tag').textContent = profile.protocolTag;
+      document.getElementById('terminal-snippets-title').textContent = profile.snippetsTitle;
+
+      document.querySelectorAll('.os-target-name').forEach(el => {
+        el.textContent = profile.name;
+      });
+      document.querySelectorAll('.os-paste-shortcut').forEach(el => {
+        el.textContent = profile.pasteShortcut;
+      });
+
+      renderTerminalSnippets();
+      updateConnectionUI();
+
+      // Sync OS mode to connected peer
+      if (state.isConnected && state.conn && state.conn.open) {
+        state.conn.send({ type: 'os_sync', os: osKey });
+      }
+    }
+
+    function renderTerminalSnippets() {
+      const profile = OS_PROFILES[state.targetOS];
+      const list = document.getElementById('terminal-snippets-list');
+      list.innerHTML = profile.snippets.map(item => `
+        <button onclick="sendQuickSnippet('${escapeHtml(item.cmd)}')" class="flex items-center justify-between p-2.5 rounded-xl bg-slate-950/90 hover:bg-slate-800 border border-slate-800 hover:border-blue-500/40 text-left transition-all group">
+          <div class="truncate pr-2">
+            <div class="text-[11px] font-semibold text-slate-300 group-hover:text-blue-300">${escapeHtml(item.label)}</div>
+            <code class="text-[11px] font-mono text-slate-500 truncate block">${escapeHtml(item.cmd)}</code>
+          </div>
+          <span class="shrink-0 text-[11px] font-semibold text-blue-400">Beam &rarr;</span>
+        </button>
+      `).join('');
+    }
+
+    function sendQuickSnippet(commandText) {
+      const payload = {
+        type: 'clipboard',
+        content: commandText
+      };
+
+      dispatchPayload(payload, () => {
+        addFeedItem({
+          sender: `Terminal Snippet → ${OS_PROFILES[state.targetOS].name}`,
+          type: 'clipboard',
+          content: commandText
+        });
+        if (state.demoMode) {
+          playPopTone();
+        }
+        showToast(`Sent snippet (${OS_PROFILES[state.targetOS].pasteShortcut} to paste)!`, 'success');
+      });
+    }
+
+    // =========================================================================
+    // BROADCASTCHANNEL (SAME-BROWSER / LOCAL TAB FALLBACK) + PEERJS (WEBRTC)
+    // =========================================================================
+    function initBroadcastChannel() {
+      if ('BroadcastChannel' in window) {
+        state.broadcast = new BroadcastChannel('phone_mac_linux_bridge_channel');
+        state.broadcast.onmessage = (event) => {
+          const msg = event.data;
+          if (!msg || msg.originCode === state.myCode) return;
+
+          if (msg.type === 'pair_request' && msg.targetCode === state.myCode) {
+            state.isConnected = true;
+            state.demoMode = false;
+            updateConnectionUI();
+            state.broadcast.postMessage({
+              type: 'pair_ack',
+              originCode: state.myCode,
+              targetCode: msg.originCode,
+              os: state.targetOS
+            });
+            playRingChime();
+            showToast('Paired locally via BroadcastChannel!', 'success');
+          } else if (msg.type === 'pair_ack' && msg.targetCode === state.myCode) {
+            state.isConnected = true;
+            state.demoMode = false;
+            resetConnectButton();
+            updateConnectionUI();
+            showToast('Connected via local BroadcastChannel!', 'success');
+          } else if (state.isConnected && msg.payload) {
+            handleIncomingPayload(msg.payload);
+          }
+        };
+      }
+    }
+
+    function setupPeerJS(code) {
+      const networkLabel = document.getElementById('peer-network-state');
+      networkLabel.textContent = 'Connecting...';
+      networkLabel.className = 'text-blue-400 font-medium';
+
+      try {
+        const peerId = PEER_PREFIX + code;
+        state.peer = new Peer(peerId, { debug: 1 });
+
+        state.peer.on('open', () => {
+          networkLabel.textContent = `Ready for ${OS_PROFILES[state.targetOS].name}`;
+          networkLabel.className = 'text-emerald-400 font-semibold';
+        });
+
+        state.peer.on('connection', (connection) => {
+          handleActiveConnection(connection);
+          playRingChime();
+          showToast(`${OS_PROFILES[state.targetOS].name} paired!`, 'success');
+        });
+
+        state.peer.on('error', (err) => {
+          console.warn('PeerJS notice:', err.type);
+          if (err.type === 'unavailable-id') {
+            initPairingCode();
+          } else if (err.type === 'peer-unavailable') {
+            showToast('Code not found. Verify the 4 digits on your computer.', 'error');
+            resetConnectButton();
+          } else {
+            networkLabel.textContent = 'Simulation Ready';
+            networkLabel.className = 'text-amber-400 font-medium';
+          }
+        });
+      } catch (e) {
+        networkLabel.textContent = 'Simulation Ready';
+      }
+    }
+
+    function connectToPartner() {
+      const inputEl = document.getElementById('input-partner-code');
+      const partnerCode = inputEl.value.trim();
+
+      if (!/^\d{4}$/.test(partnerCode)) {
+        showToast('Enter a valid 4-digit pairing code.', 'error');
+        inputEl.focus();
+        return;
+      }
+
+      if (partnerCode === state.myCode) {
+        showToast('That is your own code! Use "Test Simulation Mode" to test on one screen.', 'info');
+        return;
+      }
+
+      const btn = document.getElementById('btn-connect-peer');
+      btn.textContent = 'Linking...';
+      btn.disabled = true;
+
+      // Also announce over BroadcastChannel for instant same-device tab linking
+      if (state.broadcast) {
+        state.broadcast.postMessage({
+          type: 'pair_request',
+          originCode: state.myCode,
+          targetCode: partnerCode
+        });
+      }
+
+      if (!state.peer || state.peer.disconnected) {
+        resetConnectButton();
+        toggleDemoMode(true);
+        return;
+      }
+
+      const targetPeerId = PEER_PREFIX + partnerCode;
+      const conn = state.peer.connect(targetPeerId, { reliable: true });
+      handleActiveConnection(conn);
+
+      setTimeout(() => {
+        if (!state.isConnected) {
+          resetConnectButton();
+          showToast('No response from that code yet. Ensure both devices are open.', 'error');
+        }
+      }, 6000);
+    }
+
+    function resetConnectButton() {
+      const btn = document.getElementById('btn-connect-peer');
+      btn.textContent = 'Connect';
+      btn.disabled = false;
+    }
+
+    function handleActiveConnection(connection) {
+      state.conn = connection;
+      state.demoMode = false;
+
+      connection.on('open', () => {
+        state.isConnected = true;
+        resetConnectButton();
+        updateConnectionUI();
+        addFeedItem({
+          sender: 'System Link',
+          type: 'status',
+          content: `Direct WebRTC bridge established with ${OS_PROFILES[state.targetOS].name}!`
+        });
+        connection.send({ type: 'os_sync', os: state.targetOS });
+      });
+
+      connection.on('data', (data) => {
+        handleIncomingPayload(data);
+      });
+
+      connection.on('close', () => {
+        state.isConnected = false;
+        state.conn = null;
+        updateConnectionUI();
+        showToast('Linked computer disconnected.', 'info');
+      });
+    }
+
+    function disconnectSession() {
+      if (state.conn) {
+        state.conn.close();
+      }
+      state.isConnected = false;
+      state.demoMode = false;
+      updateConnectionUI();
+      showToast('Disconnected session.', 'info');
+    }
+
+    // =========================================================================
+    // TEST SIMULATION MODE
+    // =========================================================================
+    function toggleDemoMode(forceOn = null) {
+      if (state.isConnected && !state.demoMode) {
+        showToast('Already connected to a real computer!', 'info');
+        return;
+      }
+
+      state.demoMode = forceOn !== null ? forceOn : !state.demoMode;
+      updateConnectionUI();
+      const osName = OS_PROFILES[state.targetOS].name;
+
+      if (state.demoMode) {
+        playRingChime();
+        showToast(`Simulation Mode active! Testing ${osName} bridge.`, 'success');
+        addFeedItem({
+          sender: `${osName} Simulator`,
+          type: 'status',
+          content: `Simulated ${osName} connected! Try sending clipboard text, files, or ringing your computer.`
+        });
+      } else {
+        showToast(`Simulation Mode off. Waiting for ${osName}.`, 'info');
+      }
+    }
+
+    function updateConnectionUI() {
+      const badge = document.getElementById('laptop-status-badge');
+      const dot = document.getElementById('laptop-status-dot');
+      const text = document.getElementById('laptop-status-text');
+      const pulse = document.getElementById('status-pulse');
+      const icon = document.getElementById('status-icon');
+      const subtitle = document.getElementById('connection-subtitle');
+      const demoBtnLabel = document.getElementById('demo-btn-label');
+      const disconnectBtn = document.getElementById('btn-disconnect');
+
+      const active = state.isConnected || state.demoMode;
+      const osName = OS_PROFILES[state.targetOS].name;
+
+      if (active) {
+        badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/20 text-blue-300 border border-blue-500/40';
+        dot.className = 'w-2 h-2 rounded-full bg-blue-400';
+        text.textContent = state.demoMode ? `${osName} (Simulated)` : `${osName} Connected`;
+        pulse.className = 'absolute inset-0 rounded-2xl bg-blue-500/40 animate-pulse-ring';
+        icon.className = 'w-6 h-6 relative z-10 text-blue-400';
+        subtitle.textContent = state.demoMode
+          ? `Simulation active — test ${osName} clipboard sync, file drops, audio chimes, and ping speed!`
+          : `Encrypted peer-to-peer link active between Smartphone & ${osName}.`;
+        demoBtnLabel.textContent = state.demoMode ? 'Exit Simulation' : 'Simulation Active';
+        disconnectBtn.classList.remove('hidden');
+      } else {
+        badge.className = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30';
+        dot.className = 'w-2 h-2 rounded-full bg-amber-400 animate-pulse';
+        text.textContent = `Waiting for ${osName}...`;
+        pulse.className = 'absolute inset-0 rounded-2xl bg-amber-400/40 animate-pulse-ring';
+        icon.className = 'w-6 h-6 relative z-10 text-amber-400';
+        subtitle.innerHTML = `Turn on your <span class="os-target-name text-slate-200 font-medium">${osName}</span>, open this page, and enter your 4-digit pairing code.`;
+        demoBtnLabel.textContent = 'Test Simulation Mode';
+        disconnectBtn.classList.add('hidden');
+      }
+    }
+
+    // =========================================================================
+    // LIVE CLIPBOARD & TEXT SYNC
+    // =========================================================================
+    async function pasteFromDeviceClipboard() {
+      try {
+        if (navigator.clipboard && navigator.clipboard.readText) {
+          const text = await navigator.clipboard.readText();
+          if (text) {
+            document.getElementById('clipboard-input').value = text;
+            showToast('Pasted from clipboard!', 'success');
+            return;
+          }
+        }
+      } catch (err) {
+        // Fallback when permission prompt is restricted
+      }
+      const input = document.getElementById('clipboard-input');
+      input.focus();
+      showToast('Tap inside the text box and select Paste.', 'info');
+    }
+
+    function sendClipboardText() {
+      const input = document.getElementById('clipboard-input');
+      const text = input.value.trim();
+      const profile = OS_PROFILES[state.targetOS];
+
+      if (!text) {
+        showToast('Type or paste a link or note first!', 'error');
+        input.focus();
+        return;
+      }
+
+      const payload = {
+        type: 'clipboard',
+        content: text
+      };
+
+      dispatchPayload(payload, () => {
+        addFeedItem({
+          sender: `Sent to ${profile.name}`,
+          type: 'clipboard',
+          content: text
+        });
+
+        if (state.demoMode) {
+          setTimeout(() => {
+            playPopTone();
+            addFeedItem({
+              sender: `${profile.name} (Ready for ${profile.pasteShortcut})`,
+              type: 'clipboard',
+              content: text
+            });
+          }, 400);
+        }
+
+        input.value = '';
+        showToast(`Synced to ${profile.name}!`, 'success');
+      });
+    }
+
+    // =========================================================================
+    // QUICK REMOTE ACTIONS (RING COMPUTER, SCREEN ALERT, PING LATENCY)
+    // =========================================================================
+    function triggerRingLaptop() {
+      const osName = OS_PROFILES[state.targetOS].name;
+      const payload = { type: 'ring' };
+
+      dispatchPayload(payload, () => {
+        addFeedItem({
+          sender: 'Remote Action',
+          type: 'status',
+          content: `🔔 Sent "Ring Computer" chime signal to ${osName}.`
+        });
+
+        if (state.demoMode) {
+          playRingChime();
+          showToast(`${osName} speakers ringing!`, 'success');
+        } else {
+          showToast(`Ring signal sent to ${osName}!`, 'success');
+        }
+      });
+    }
+
+    function triggerQuickAlert() {
+      const osName = OS_PROFILES[state.targetOS].name;
+      const alertMessage = `📱 Smartphone says: "Hey! I am linked and ready to sync with ${osName}."`;
+      const payload = {
+        type: 'alert_popup',
+        message: alertMessage
+      };
+
+      dispatchPayload(payload, () => {
+        addFeedItem({
+          sender: 'Remote Action',
+          type: 'status',
+          content: `💬 Sent full-screen Screen Alert to ${osName}.`
+        });
+
+        if (state.demoMode) {
+          playPopTone();
+          openRemoteAlertModal(alertMessage);
+        } else {
+          showToast(`Screen Alert sent to ${osName}!`, 'success');
+        }
+      });
+    }
+
+    function triggerPingTest() {
+      const sentTime = performance.now();
+      state.lastPingSentAt = sentTime;
+      const osName = OS_PROFILES[state.targetOS].name;
+
+      const payload = {
+        type: 'ping',
+        sentAt: sentTime
+      };
+
+      dispatchPayload(payload, () => {
+        if (state.demoMode) {
+          const simulatedMs = Math.floor(9 + Math.random() * 16);
+          setTimeout(() => {
+            displayLatencyResult(simulatedMs);
+          }, simulatedMs);
+        } else {
+          showToast(`Pinging ${osName}...`, 'info');
+        }
+      });
+    }
+
+    function displayLatencyResult(ms) {
+      const osName = OS_PROFILES[state.targetOS].name;
+      const badge = document.getElementById('latency-badge');
+      badge.textContent = `${ms} ms`;
+      badge.classList.remove('hidden');
+      playPopTone();
+
+      addFeedItem({
+        sender: 'Ping Diagnostics',
+        type: 'status',
+        content: `📡 Round-trip latency to ${osName}: ${ms} ms (Optimal)`
+      });
+      showToast(`Ping reply: ${ms} ms`, 'success');
+    }
+
+    function openRemoteAlertModal(message) {
+      document.getElementById('remote-alert-text').textContent = message;
+      document.getElementById('remote-alert-modal').classList.remove('hidden');
+    }
+
+    function dismissRemoteAlert() {
+      document.getElementById('remote-alert-modal').classList.add('hidden');
+    }
+
+    // =========================================================================
+    // WEB AUDIO API SOUND SYNTHESIZER
+    // =========================================================================
+    function getAudioContext() {
+      if (!state.audioCtx) {
+        const AudioContext = window.AudioContext || window.webkitAudioContext;
+        state.audioCtx = new AudioContext();
+      }
+      if (state.audioCtx.state === 'suspended') {
+        state.audioCtx.resume();
+      }
+      return state.audioCtx;
+    }
+
+    function playRingChime() {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+        const notes = [587.33, 739.99, 880.0, 1174.66];
+        notes.forEach((freq, i) => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(freq, now + i * 0.12);
+
+          gain.gain.setValueAtTime(0.001, now + i * 0.12);
+          gain.gain.exponentialRampToValueAtTime(0.22, now + i * 0.12 + 0.03);
+          gain.gain.exponentialRampToValueAtTime(0.0001, now + i * 0.12 + 0.7);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+          osc.start(now + i * 0.12);
+          osc.stop(now + i * 0.12 + 0.75);
+        });
+      } catch (e) {
+        console.warn('Audio playback skipped:', e);
+      }
+    }
+
+    function playPopTone() {
+      try {
+        const ctx = getAudioContext();
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = 'triangle';
+        osc.frequency.setValueAtTime(640, now);
+        osc.frequency.exponentialRampToValueAtTime(960, now + 0.11);
+
+        gain.gain.setValueAtTime(0.14, now);
+        gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.15);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now);
+        osc.stop(now + 0.16);
+      } catch (e) {
+        console.warn('Audio playback skipped:', e);
+      }
+    }
+
+    // =========================================================================
+    // FILE & IMAGE DROP ZONE
+    // =========================================================================
+    function initDragAndDrop() {
+      const dropZone = document.getElementById('drop-zone');
+
+      ['dragenter', 'dragover'].forEach(evt => {
+        dropZone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          dropZone.classList.add('border-blue-500', 'bg-blue-950/30');
+        });
+      });
+
+      ['dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          dropZone.classList.remove('border-blue-500', 'bg-blue-950/30');
+        });
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        const files = e.dataTransfer.files;
+        if (files && files.length > 0) {
+          processFileTransfer(files[0]);
+        }
+      });
+    }
+
+    function handleFileSelect(event) {
+      const file = event.target.files[0];
+      if (file) {
+        processFileTransfer(file);
+        event.target.value = '';
+      }
+    }
+
+    function processFileTransfer(file) {
+      const maxBytes = 8 * 1024 * 1024;
+      if (file.size > maxBytes) {
+        showToast('Please choose a file under 8 MB for instant transfer.', 'error');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const isImage = file.type.startsWith('image/');
+        const osName = OS_PROFILES[state.targetOS].name;
+        const payload = {
+          type: 'file',
+          fileName: file.name,
+          fileSize: formatBytes(file.size),
+          isImage: isImage,
+          dataUrl: reader.result
+        };
+
+        dispatchPayload(payload, () => {
+          addFeedItem({
+            sender: `Sent to ${osName}`,
+            type: 'file',
+            fileName: file.name,
+            fileSize: formatBytes(file.size),
+            isImage: isImage,
+            dataUrl: reader.result
+          });
+          showToast(`Transferred "${file.name}" to ${osName}!`, 'success');
+        });
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function formatBytes(bytes) {
+      if (bytes < 1024) return bytes + ' B';
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+      return (bytes / (1024 * 1024)).toFixed(2) + ' MB';
+    }
+
+    // =========================================================================
+    // DATA DISPATCH & INCOMING HANDLER
+    // =========================================================================
+    function dispatchPayload(payload, onSuccess) {
+      if (state.isConnected && state.conn && state.conn.open) {
+        state.conn.send(payload);
+        onSuccess();
+      } else if (state.isConnected && state.broadcast) {
+        state.broadcast.postMessage({ originCode: state.myCode, payload });
+        onSuccess();
+      } else if (state.demoMode) {
+        onSuccess();
+      } else {
+        const osName = OS_PROFILES[state.targetOS].name;
+        state.demoMode = true;
+        updateConnectionUI();
+        showToast(`${osName} not paired yet — switched to Simulation Mode so you can test right away!`, 'info');
+        onSuccess();
+      }
+    }
+
+    function handleIncomingPayload(data) {
+      if (!data || !data.type) return;
+
+      if (data.type === 'os_sync' && data.os) {
+        setTargetOS(data.os);
+      } else if (data.type === 'clipboard') {
+        playPopTone();
+        addFeedItem({
+          sender: 'From Linked Device',
+          type: 'clipboard',
+          content: data.content
+        });
+        showToast('New clipboard item received!', 'success');
+      } else if (data.type === 'ring') {
+        playRingChime();
+        addFeedItem({
+          sender: 'Remote Ring',
+          type: 'status',
+          content: '🔔 Incoming Ring Computer chime triggered!'
+        });
+        showToast('🔔 Ringing computer!', 'info');
+      } else if (data.type === 'alert_popup') {
+        playRingChime();
+        openRemoteAlertModal(data.message);
+      } else if (data.type === 'ping') {
+        if (state.conn && state.conn.open) {
+          state.conn.send({ type: 'pong', sentAt: data.sentAt });
+        } else if (state.broadcast) {
+          state.broadcast.postMessage({ originCode: state.myCode, payload: { type: 'pong', sentAt: data.sentAt } });
+        }
+      } else if (data.type === 'pong') {
+        const rtt = Math.max(1, Math.round(performance.now() - data.sentAt));
+        displayLatencyResult(rtt);
+      } else if (data.type === 'file') {
+        playPopTone();
+        addFeedItem({
+          sender: 'Received File',
+          type: 'file',
+          fileName: data.fileName,
+          fileSize: data.fileSize,
+          isImage: data.isImage,
+          dataUrl: data.dataUrl
+        });
+        showToast(`Received "${data.fileName}"`, 'success');
+      }
+    }
+
+    // =========================================================================
+    // LIVE SYNC FEED & CLIPBOARD HELPERS
+    // =========================================================================
+    function addFeedItem(item) {
+      const feed = document.getElementById('sync-feed');
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const shortcut = OS_PROFILES[state.targetOS].pasteShortcut;
+
+      const card = document.createElement('div');
+      card.className = 'p-3.5 rounded-xl bg-slate-800/80 border border-slate-700 text-xs transition-all';
+
+      let bodyHtml = '';
+      if (item.type === 'clipboard') {
+        const safeText = escapeHtml(item.content);
+        bodyHtml = `
+          <div class="mt-2 flex items-start justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+            <code class="text-slate-100 break-all font-mono text-xs">${safeText}</code>
+            <button onclick="copyFeedText(this)" data-copy="${safeText}" class="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 text-white font-semibold rounded-lg transition-all">
+              Copy (${shortcut})
+            </button>
+          </div>
+        `;
+      } else if (item.type === 'file') {
+        const previewHtml = item.isImage
+          ? `<img src="${item.dataUrl}" alt="${escapeHtml(item.fileName)}" class="mt-2 w-full max-h-40 object-cover rounded-lg border border-slate-700" />`
+          : '';
+        bodyHtml = `
+          ${previewHtml}
+          <div class="mt-2 flex items-center justify-between gap-2 bg-slate-950 p-2.5 rounded-lg border border-slate-800">
+            <div class="truncate">
+              <p class="font-semibold text-white truncate">${escapeHtml(item.fileName)}</p>
+              <p class="text-[11px] text-slate-400">${item.fileSize}</p>
+            </div>
+            <a href="${item.dataUrl}" download="${escapeHtml(item.fileName)}" class="shrink-0 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white font-semibold rounded-lg transition-colors">
+              Download
+            </a>
+          </div>
+        `;
+      } else {
+        bodyHtml = `<p class="text-slate-300 mt-1">${escapeHtml(item.content)}</p>`;
+      }
+
+      card.innerHTML = `
+        <div class="flex items-center justify-between font-semibold text-blue-400">
+          <span>${escapeHtml(item.sender)}</span>
+          <span class="text-[11px] font-normal text-slate-500">${time}</span>
+        </div>
+        ${bodyHtml}
+      `;
+
+      feed.prepend(card);
+    }
+
+    function clearFeed() {
+      const feed = document.getElementById('sync-feed');
+      feed.innerHTML = `
+        <div class="p-3.5 rounded-xl bg-slate-800/60 border border-slate-700/80 text-xs text-slate-400 text-center">
+          Feed cleared. Ready for new transfers.
+        </div>
+      `;
+    }
+
+    function copyPairingCode() {
+      copyRawText(state.myCode);
+      showToast(`Copied code ${state.myCode}!`, 'success');
+    }
+
+    function copyFeedText(btn) {
+      const text = btn.getAttribute('data-copy');
+      copyRawText(text);
+      const original = btn.textContent;
+      btn.textContent = 'Copied!';
+      setTimeout(() => btn.textContent = original, 1500);
+      showToast('Copied to clipboard!', 'success');
+    }
+
+    // Reliable iFrame-compatible clipboard copy using document.execCommand('copy')
+    function copyRawText(text) {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand('copy');
+      } catch (err) {
+        console.warn('Copy fallback failed', err);
+      }
+      document.body.removeChild(textarea);
+    }
+
+    function escapeHtml(str) {
+      const div = document.createElement('div');
+      div.textContent = str;
+      return div.innerHTML;
+    }
+
+    // =========================================================================
+    // CUSTOM TOAST NOTIFICATION SYSTEM (NO ALERT() CALLS)
+    // =========================================================================
+    function showToast(message, type = 'info') {
+      const container = document.getElementById('toast-container');
+      const toast = document.createElement('div');
+
+      const styles = {
+        success: 'bg-blue-600 text-white border-blue-400',
+        error: 'bg-rose-600 text-white border-rose-400',
+        info: 'bg-slate-800 text-slate-100 border-slate-600'
+      };
+
+      toast.className = `pointer-events-auto px-4 py-3 rounded-xl shadow-xl border text-xs font-semibold flex items-center justify-between gap-2 transition-all transform translate-y-0 opacity-100 ${styles[type] || styles.info}`;
+      toast.innerHTML = `<span>${escapeHtml(message)}</span>`;
+
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => toast.remove(), 300);
+      }, 3200);
+    }
+  </script>
+</body>
+</html>
